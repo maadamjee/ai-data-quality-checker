@@ -1,0 +1,306 @@
+HTML
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Data Quality Checker (Gemini API)</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <style>
+        /* Custom styles for smooth animations and scrollbars */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen font-sans">
+
+    <div class="max-w-6xl mx-auto px-4 py-8">
+        <header class="mb-8 text-center md:text-left">
+            <h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">Data Quality Analyzer</h1>
+            <p class="text-slate-500 mt-2">Upload a CSV dataset to detect missing values, anomalies, and formatting issues using Google Gemini 2.5 Flash.</p>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200/80 flex flex-col justify-between">
+                <div>
+                    <h2 class="text-lg font-semibold text-slate-900 mb-4">1. Configuration</h2>
+                    <div class="mb-4">
+                        <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Gemini API Key</label>
+                        <input type="password" id="apiKeyInput" placeholder="AIzaSy..." 
+                               class="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm">
+                    </div>
+                    
+                    <div class="mb-4">
+                        <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Upload CSV File</label>
+                        <label class="flex flex-col items-center justify-center border-2 border-dashed border-slate-300 rounded-xl p-4 cursor-pointer hover:bg-slate-50 transition-colors bg-slate-50/50">
+                            <svg class="w-8 h-8 text-slate-400 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+                            <span class="text-xs font-medium text-slate-600" id="fileNameDisplay">Choose a file...</span>
+                            <input type="file" id="fileInput" accept=".csv" class="hidden">
+                        </label>
+                    </div>
+                </div>
+
+                <button id="analyzeBtn" class="w-full mt-4 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-4 rounded-xl shadow-md shadow-indigo-200 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+                    <span>Analyze Dataset</span>
+                </button>
+            </div>
+
+            <div class="lg:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-slate-200/80 flex flex-col">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-lg font-semibold text-slate-900">2. Dataset Preview / Paste</h2>
+                    <button id="clearBtn" class="text-xs font-medium text-rose-500 hover:text-rose-600 cursor-pointer">Clear Text</button>
+                </div>
+                <textarea id="csvTextArea" placeholder="Paste your CSV row data directly here or drag & drop a file to populate..." 
+                          class="w-full flex-grow min-h-[180px] p-4 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs font-mono bg-slate-50 custom-scrollbar"></textarea>
+            </div>
+        </div>
+
+        <div id="statusAlert" class="hidden p-4 rounded-xl mb-8 flex items-center gap-3 text-sm font-medium"></div>
+
+        <div id="resultsSection" class="hidden space-y-6">
+            <hr class="border-slate-200">
+            <h2 class="text-2xl font-bold text-slate-900 tracking-tight">Analysis Report</h2>
+
+            <div id="statsGrid" class="grid grid-cols-2 md:grid-cols-4 gap-4"></div>
+
+            <div class="bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
+                <div class="px-6 py-4 bg-slate-50 border-b border-slate-200">
+                    <h3 class="font-bold text-slate-900">Detected Issues & Actionable Fixes</h3>
+                </div>
+                <div id="issuesList" class="divide-y divide-slate-100">
+                    </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // DOM Element Pickers
+        const fileInput = document.getElementById('fileInput');
+        const fileNameDisplay = document.getElementById('fileNameDisplay');
+        const csvTextArea = document.getElementById('csvTextArea');
+        const apiKeyInput = document.getElementById('apiKeyInput');
+        const analyzeBtn = document.getElementById('analyzeBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const statusAlert = document.getElementById('statusAlert');
+        const resultsSection = document.getElementById('resultsSection');
+        const statsGrid = document.getElementById('statsGrid');
+        const issuesList = document.getElementById('issuesList');
+
+        // Manage LocalStorage cache for API Key comfort
+        if (localStorage.getItem('gemini_api_key')) {
+            apiKeyInput.value = localStorage.getItem('gemini_api_key');
+        }
+
+        // File Parsing Interaction
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            fileNameDisplay.textContent = file.name;
+            
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                csvTextArea.value = event.target.result;
+            };
+            reader.readAsText(file);
+        });
+
+        // Clear layout state
+        clearBtn.addEventListener('click', () => {
+            csvTextArea.value = '';
+            fileInput.value = '';
+            fileNameDisplay.textContent = 'Choose a file...';
+        });
+
+        // UI Feedback alerts
+        function showAlert(message, type = 'info') {
+            statusAlert.className = "p-4 rounded-xl mb-8 flex items-center gap-3 text-sm font-medium ";
+            if (type === 'error') {
+                statusAlert.classList.add('bg-rose-50', 'text-rose-700', 'border', 'border-rose-200');
+            } else if (type === 'loading') {
+                statusAlert.classList.add('bg-indigo-50', 'text-indigo-700', 'border', 'border-indigo-200', 'animate-pulse');
+            }
+            statusAlert.innerHTML = message;
+            statusAlert.classList.remove('hidden');
+        }
+
+        function hideAlert() {
+            statusAlert.classList.add('hidden');
+        }
+
+        // The Engine Action Trigger
+        analyzeBtn.addEventListener('click', async () => {
+            const apiKey = apiKeyInput.value.trim();
+            const csvData = csvTextArea.value.trim();
+
+            // Guard rails validation
+            if (!apiKey) {
+                showAlert('⚠️ Please input a Google Gemini API Key to proceed.', 'error');
+                return;
+            }
+            if (!csvData) {
+                showAlert('⚠️ Please upload or paste a CSV text file payload first.', 'error');
+                return;
+            }
+
+            // Save key to make testing faster for user
+            localStorage.setItem('gemini_api_key', apiKey);
+            
+            // UI Toggle to operational execution status
+            analyzeBtn.disabled = true;
+            showAlert('🧬 Processing dataset metrics and requesting analysis from Gemini API...', 'loading');
+            resultsSection.classList.add('hidden');
+
+            try {
+                // Construct prompt requiring structure enforcement JSON back
+                const systemPrompt = `You are an expert Data Quality Engineer. Your objective is to parse raw string data matching CSV parameters and generate a full data quality audit evaluation. 
+                You must return your output *strictly* as a standardized JSON object string. Do not wrap code snippets in markdown ticks. Do not talk outside JSON structures.
+
+                Expected target format representation structure:
+                {
+                   "summary": {
+                      "totalRecords": 100,
+                      "healthScore": 85,
+                      "totalIssuesCount": 5,
+                      "dataCleanlinessLevel": "Needs Maintenance"
+                   },
+                   "issues": [
+                      {
+                         "category": "Missing Values / Duplicates / Inconsistent Formatting / Outliers / Anomalies",
+                         "column": "Column Name or 'All'",
+                         "severity": "High / Medium / Low",
+                         "description": "Clear sentence describing what was broken.",
+                         "fix": "Actionable step indicating how to programmatically or manually correct."
+                      }
+                   ]
+                }`;
+
+                const userPrompt = `Analyze the data quality parameters of the following raw dataset:\n\n${csvData}`;
+
+                // Construct official Gemini API Endpoint URL
+                // Using gemini-2.5-flash as the fast, cost-effective model for text tasks
+                const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`;
+
+                // Fetch Request matching Gemini structural payload requirements
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-goog-api-key': apiKey
+                    },
+                    body: JSON.stringify({
+                        contents: [
+                            {
+                                role: 'user',
+                                parts: [{ text: userPrompt }]
+                            }
+                        ],
+                        systemInstruction: {
+                            parts: [{ text: systemPrompt }]
+                        },
+                        generationConfig: {
+                            temperature: 0.1, // Keep evaluation data deterministic
+                            responseMimeType: "application/json" // Tells Gemini to enforce JSON format
+                        }
+                    })
+                });
+
+                if (!response.ok) {
+                    const errData = await response.json().catch(() => ({}));
+                    throw new Error(errData?.error?.message || `HTTP Server Exception Code: ${response.status}`);
+                }
+
+                const data = await response.json();
+                
+                // Extract text from Gemini structure: data.candidates[0].content.parts[0].text
+                const textResponse = data.candidates[0].content.parts[0].text;
+                
+                // Parse AI structured contents safely
+                const resultJson = JSON.parse(textResponse.trim());
+                
+                renderReports(resultJson);
+                hideAlert();
+
+            } catch (err) {
+                console.error(err);
+                showAlert(`❌ Analysis failed. Detail error: ${err.message}`, 'error');
+            } finally {
+                analyzeBtn.disabled = false;
+            }
+        });
+
+        // Render functions manipulating Dashboard elements
+        function renderReports(report) {
+            // Render basic overview KPI widgets
+            const stats = report.summary;
+            
+            // Set dynamic color thresholding mapping for visual clean scores
+            let scoreBg = 'text-emerald-600';
+            if(stats.healthScore < 50) scoreBg = 'text-rose-600';
+            else if(stats.healthScore < 80) scoreBg = 'text-amber-500';
+
+            statsGrid.innerHTML = `
+                <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm">
+                    <span class="text-xs font-bold text-slate-400 uppercase tracking-wider block">Total Rows Detected</span>
+                    <span class="text-2xl font-bold text-slate-800 mt-1 block">${stats.totalRecords}</span>
+                </div>
+                <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm">
+                    <span class="text-xs font-bold text-slate-400 uppercase tracking-wider block">Quality Health Score</span>
+                    <span class="text-2xl font-extrabold ${scoreBg} mt-1 block">${stats.healthScore}%</span>
+                </div>
+                <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm">
+                    <span class="text-xs font-bold text-slate-400 uppercase tracking-wider block">Total Issues Logged</span>
+                    <span class="text-2xl font-bold text-slate-800 mt-1 block">${stats.totalIssuesCount}</span>
+                </div>
+                <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm">
+                    <span class="text-xs font-bold text-slate-400 uppercase tracking-wider block">Cleanliness Assessment</span>
+                    <span class="text-sm font-semibold mt-2 inline-block px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700">${stats.dataCleanlinessLevel}</span>
+                </div>
+            `;
+
+            // Build dynamic issue list items
+            issuesList.innerHTML = '';
+            if (!report.issues || report.issues.length === 0) {
+                issuesList.innerHTML = `
+                    <div class="p-8 text-center text-slate-400 text-sm">
+                        🎉 Splendid! No noticeable data quality pipeline anomalies encountered.
+                    </div>`;
+            } else {
+                report.issues.forEach(issue => {
+                    // Pick status indicator colored flags 
+                    let severityClass = 'bg-blue-50 text-blue-700 border-blue-100';
+                    if (issue.severity.toLowerCase() === 'high') severityClass = 'bg-rose-50 text-rose-700 border-rose-100';
+                    if (issue.severity.toLowerCase() === 'medium') severityClass = 'bg-amber-50 text-amber-700 border-amber-100';
+
+                    const issueItem = document.createElement('div');
+                    issueItem.className = "p-6 hover:bg-slate-50/50 transition-colors flex flex-col md:flex-row gap-4 items-start justify-between";
+                    issueItem.innerHTML = `
+                        <div class="space-y-1 max-w-3xl">
+                            <div class="flex flex-wrap items-center gap-2">
+                                <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold tracking-wide border ${severityClass}">${issue.severity}</span>
+                                <span class="text-sm font-bold text-slate-900">${issue.category}</span>
+                                <span class="text-xs font-mono bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded border border-slate-200">Col: ${issue.column}</span>
+                            </div>
+                            <p class="text-slate-600 text-sm mt-2"><strong class="text-slate-800">Issue:</strong> ${issue.description}</p>
+                            <p class="text-slate-600 text-sm"><strong class="text-indigo-600">Suggested Fix:</strong> ${issue.fix}</p>
+                        </div>
+                    `;
+                    issuesList.appendChild(issueItem);
+                });
+            }
+
+            // Expose results panel smoothly
+            resultsSection.classList.remove('hidden');
+        }
+    </script>
+</body>
+</html>
